@@ -81,6 +81,7 @@ interface ZonalGroup {
   assistantPhone: string;
   minPS: number;
   maxPS: number;
+  psRanges: string;
 }
 
 // --- Constants ---
@@ -293,14 +294,42 @@ export default function App() {
     groupsMap.forEach((rows, key) => {
       const [oName, aName] = key.split('|');
       const firstRow = rows[0];
-      const psNumbers = rows.map(r => parseInt(r['Polling Station No'])).filter(n => !isNaN(n));
+      const psNumbers = Array.from(new Set(rows.map(r => parseInt(r['Polling Station No'])).filter(n => !isNaN(n))))
+        .sort((a, b) => a - b);
+
+      // Function to format ranges (e.g., 1,2,3,5 -> "1-3, 5")
+      const formatRanges = (nums: number[]) => {
+        if (nums.length === 0) return "";
+        const ranges: string[] = [];
+        let start = nums[0];
+        let end = nums[0];
+
+        for (let i = 1; i <= nums.length; i++) {
+          if (i < nums.length && nums[i] === end + 1) {
+            end = nums[i];
+          } else {
+            if (start === end) {
+              ranges.push(`${start}`);
+            } else {
+              ranges.push(`${start}-${end}`);
+            }
+            if (i < nums.length) {
+              start = nums[i];
+              end = nums[i];
+            }
+          }
+        }
+        return ranges.join(", ");
+      };
+
       groups.push({
         zonalName: oName,
         zonalPhone: firstRow['Zonal Officer Number'],
         assistantName: aName,
         assistantPhone: firstRow['Zonal Officer Assistant Number'],
         minPS: Math.min(...psNumbers),
-        maxPS: Math.max(...psNumbers)
+        maxPS: Math.max(...psNumbers),
+        psRanges: formatRanges(psNumbers)
       });
     });
     return groups.sort((a,b) => a.minPS - b.minPS);
@@ -522,7 +551,7 @@ export default function App() {
                           <div className="flex items-center justify-between">
                             <div className="flex flex-col">
                               <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Coverage</span>
-                              <span className="text-xl font-black text-[#000080]">PS {g.minPS} - {g.maxPS}</span>
+                              <span className="text-xl font-black text-[#000080]">PS {g.psRanges}</span>
                             </div>
                             <div className="p-3 bg-orange-50 rounded-2xl">
                               <Navigation className="w-5 h-5 text-[#FF9933]" />
