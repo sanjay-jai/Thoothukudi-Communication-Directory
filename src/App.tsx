@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
   RefreshCcw, 
+  RotateCcw,
   Phone, 
   User, 
   MapPin, 
@@ -19,7 +20,8 @@ import {
   Flag,
   Map as MapIcon,
   Building2,
-  PhoneCall
+  PhoneCall,
+  MessageCircle
 } from 'lucide-react';
 
 // --- Types & Interfaces ---
@@ -111,6 +113,13 @@ const ContactItem = ({ name, phone, extra, label, accent = "navy", delay = 0 }: 
     green: "bg-green-50 text-[#138808] group-hover/btn:bg-[#138808] group-hover/btn:text-white"
   };
 
+  const getWhatsAppLink = (num: string) => {
+    const cleaned = num.replace(/\D/g, '');
+    // Assume India (+91) if not specified, but most inputs have it or are 10 digits
+    const formatted = cleaned.length === 10 ? `91${cleaned}` : cleaned;
+    return `https://wa.me/${formatted}`;
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, x: -10 }}
@@ -124,18 +133,32 @@ const ContactItem = ({ name, phone, extra, label, accent = "navy", delay = 0 }: 
         <h4 className="text-base font-bold text-slate-900 leading-tight group-hover:translate-x-1 transition-transform">{name || 'N/A'}</h4>
         {extra && <p className="text-xs font-bold text-slate-500 uppercase tracking-tight">{extra}</p>}
       </div>
-      <div className="mt-4 pt-4 border-t border-dashed border-slate-100 flex items-center justify-between">
+      <div className="mt-4 pt-4 border-t border-dashed border-slate-100 flex items-center justify-between gap-3">
         <a 
           href={`tel:${phone}`}
-          className="flex items-center gap-2 group/btn"
+          className="flex-1 flex items-center gap-2 group/btn"
         >
           <div className={`p-2 rounded-lg transition-all transform group-hover/btn:scale-110 ${btnColors[accent]}`}>
             <PhoneCall className="w-3.5 h-3.5" />
           </div>
-          <span className={`text-sm font-mono font-black text-slate-700 transition-colors ${accentColors[accent].split(' ')[0]}`}>
-            {phone || 'N/A'}
+          <span className={`text-[13px] font-mono font-black text-slate-700 transition-colors whitespace-nowrap overflow-hidden text-ellipsis ${accentColors[accent].split(' ')[0]}`}>
+            {phone || '000'}
           </span>
         </a>
+
+        {phone && phone !== 'N/A' && (
+          <motion.a
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            href={getWhatsAppLink(phone)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 rounded-lg bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white transition-all shadow-sm"
+            title="WhatsApp Message"
+          >
+            <MessageCircle className="w-4 h-4" />
+          </motion.a>
+        )}
       </div>
     </motion.div>
   );
@@ -197,6 +220,12 @@ export default function App() {
     const filtered = data.filter(item => item['Assembly Constituency'] === selectedConstituency);
     setFilteredResults(filtered);
     setHasSearched(true);
+  };
+
+  const handleReset = () => {
+    setHasSearched(false);
+    setSelectedConstituency('');
+    setFilteredResults([]);
   };
 
   // --- Filtered Data Aggregation ---
@@ -388,19 +417,30 @@ export default function App() {
               </div>
             </div>
 
-            <motion.button
-              whileHover={{ scale: 1.02, backgroundColor: "#0000a0" }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleSearch}
-              disabled={!selectedConstituency}
-              className="w-full h-16 relative overflow-hidden bg-[#000080] text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-blue-200/50 disabled:opacity-50 disabled:shadow-none"
-            >
-              <span className="relative z-10 flex items-center justify-center gap-3">
-                <Search className="w-5 h-5" />
-                Access Search Results
-              </span>
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-[#000080] opacity-0 group-hover:opacity-100 transition-opacity" />
-            </motion.button>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <motion.button
+                whileHover={{ scale: 1.02, backgroundColor: "#0000a0" }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleSearch}
+                disabled={!selectedConstituency}
+                className="flex-1 h-16 relative overflow-hidden bg-[#000080] text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-blue-200/50 disabled:opacity-50 disabled:shadow-none"
+              >
+                <span className="relative z-10 flex items-center justify-center gap-3">
+                  <Search className="w-5 h-5" />
+                  Access Search Results
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-[#000080] opacity-0 group-hover:opacity-100 transition-opacity" />
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleReset}
+                className="px-8 h-16 bg-slate-50 text-slate-400 hover:text-[#FF9933] hover:bg-orange-50 border border-slate-100 rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-sm hover:shadow-orange-100/50"
+              >
+                <RotateCcw className="w-5 h-5 mx-auto" />
+              </motion.button>
+            </div>
           </div>
         </div>
 
