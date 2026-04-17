@@ -65,6 +65,8 @@ interface RawData {
   'Inspector': string;
   'Inspector Number': string;
   'Police Station-Inspector': string;
+  'Assembly Coordinator (Web Casting) Name'?: string;
+  'Assembly Coordinator (Web Casting) Number'?: string;
 }
 
 interface Contact {
@@ -185,6 +187,7 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedConstituency, setSelectedConstituency] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [hasSearched, setHasSearched] = useState(false);
   const [filteredResults, setFilteredResults] = useState<RawData[]>([]);
 
@@ -238,8 +241,22 @@ export default function App() {
   const handleReset = () => {
     setHasSearched(false);
     setSelectedConstituency('');
+    setSelectedCategory('All');
     setFilteredResults([]);
   };
+
+  const categories = [
+    'All',
+    'RO Details',
+    'ARO Details',
+    'FST Details',
+    'SST Details',
+    'Assembly Coordinator (Web Casting)',
+    'Zonal Officer Section',
+    'DSP Details',
+    'Assembly Inspector',
+    'Inspector Details'
+  ];
 
   // --- Filtered Data Aggregation ---
 
@@ -275,6 +292,58 @@ export default function App() {
     const unique = new Map<string, Contact>();
     filteredResults.forEach(r => {
       if (r['SST Name']) unique.set(r['SST Name'], { name: r['SST Name'], phone: r['SST Number'] });
+    });
+    return Array.from(unique.values()).sort((a,b) => a.name.localeCompare(b.name));
+  }, [filteredResults]);
+
+  const coordinatorDetails = useMemo(() => {
+    const unique = new Map<string, Contact>();
+    
+    // Find the keys dynamically in case the headers don't match exactly
+    let nameKey = 'Assembly Coordinator (Web Casting) Name';
+    let numKey = 'Assembly Coordinator (Web Casting) Number';
+    
+    if (filteredResults.length > 0) {
+      const keys = Object.keys(filteredResults[0]);
+      
+      // Look for "Web Casting" or "Webcasting" or "Coordinator" in same header
+      const foundNameKey = keys.find(k => {
+        const lower = k.toLowerCase();
+        const hasWebCasting = lower.includes('web casting') || lower.includes('webcasting');
+        const isName = lower.includes('name');
+        return hasWebCasting && isName;
+      });
+      
+      const foundNumKey = keys.find(k => {
+        const lower = k.toLowerCase();
+        const hasWebCasting = lower.includes('web casting') || lower.includes('webcasting');
+        const isPhone = lower.includes('number') || lower.includes('phone') || lower.includes('mobile');
+        return hasWebCasting && isPhone;
+      });
+      
+      if (foundNameKey) nameKey = foundNameKey;
+      if (foundNumKey) numKey = foundNumKey;
+      
+      // Last resort: If still using defaults and they aren't in keys, try Column Z (25) and AA (26)
+      if (!keys.includes(nameKey) && keys.length > 25) nameKey = keys[25];
+      if (!keys.includes(numKey) && keys.length > 26) numKey = keys[26];
+    }
+
+    filteredResults.forEach(r => {
+      const rawName = (r as any)[nameKey];
+      const rawPhone = (r as any)[numKey];
+      
+      if (rawName) {
+        const name = String(rawName).trim();
+        const phone = rawPhone ? String(rawPhone).trim() : '';
+        
+        if (name && name !== 'N/A' && name !== '-' && name !== '.') {
+          unique.set(name, { 
+            name, 
+            phone: phone || '' 
+          });
+        }
+      }
     });
     return Array.from(unique.values()).sort((a,b) => a.name.localeCompare(b.name));
   }, [filteredResults]);
@@ -458,6 +527,29 @@ export default function App() {
               </div>
             </div>
 
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-blue-600">
+                  <Users className="w-3.5 h-3.5" />
+                  Select Personnel Category
+                </label>
+              </div>
+              <div className="relative group">
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full pl-5 pr-12 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-[#000080] transition-all cursor-pointer appearance-none"
+                >
+                  {categories.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-[#000080] transition-colors">
+                  <ChevronRight className="w-5 h-5 rotate-90" />
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-4">
               <motion.button
                 whileHover={{ scale: 1.02, backgroundColor: "#0000a0" }}
@@ -468,7 +560,7 @@ export default function App() {
               >
                 <span className="relative z-10 flex items-center justify-center gap-3">
                   <Search className="w-5 h-5" />
-                  Access Search Results
+                  Search
                 </span>
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-[#000080] opacity-0 group-hover:opacity-100 transition-opacity" />
               </motion.button>
@@ -508,35 +600,42 @@ export default function App() {
               <div className="grid grid-cols-1 gap-10 max-w-5xl mx-auto">
                 
                 {/* 1. RO DETAILS */}
-                {roDetails.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'RO Details') && roDetails.length > 0 && (
                   <SectionCard title="RO Details" icon={UserCheck} bannerColor="bg-blue-50/30" iconColor="text-[#000080]">
                     {roDetails.map((c, i) => <ContactItem key={i} {...c} label="Returning Officer" delay={i} />)}
                   </SectionCard>
                 )}
 
                 {/* 2. ARO DETAILS */}
-                {aroDetails.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'ARO Details') && aroDetails.length > 0 && (
                   <SectionCard title="ARO Details" icon={User} bannerColor="bg-blue-50/20" iconColor="text-blue-500">
                     {aroDetails.map((c, i) => <ContactItem key={i} {...c} delay={i + 1} />)}
                   </SectionCard>
                 )}
 
                 {/* 3. FST DETAILS (3 Columns) */}
-                {fstDetails.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'FST Details') && fstDetails.length > 0 && (
                   <SectionCard title="FST Details" icon={Zap} layoutClass="sm:grid-cols-2 lg:grid-cols-3" bannerColor="bg-orange-50/30" iconColor="text-[#FF9933]">
                     {fstDetails.map((c, i) => <ContactItem key={i} {...c} accent="saffron" delay={i} />)}
                   </SectionCard>
                 )}
 
                 {/* 4. SST DETAILS (3 Columns) */}
-                {sstDetails.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'SST Details') && sstDetails.length > 0 && (
                   <SectionCard title="SST Details" icon={Eye} layoutClass="sm:grid-cols-2 lg:grid-cols-3" bannerColor="bg-green-50/30" iconColor="text-[#138808]">
                     {sstDetails.map((c, i) => <ContactItem key={i} {...c} accent="green" delay={i} />)}
                   </SectionCard>
                 )}
 
+                {/* 4.5 ASSEMBLY COORDINATOR (WEB CASTING) */}
+                {(selectedCategory === 'All' || selectedCategory === 'Assembly Coordinator (Web Casting)') && coordinatorDetails.length > 0 && (
+                  <SectionCard title="Assembly Coordinator (Web Casting)" icon={Users} bannerColor="bg-blue-50/40" iconColor="text-blue-600">
+                    {coordinatorDetails.map((c, i) => <ContactItem key={i} {...c} accent="navy" delay={i} />)}
+                  </SectionCard>
+                )}
+
                 {/* 5. ZONAL OFFICER SECTION */}
-                {zonalGroups.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'Zonal Officer Section') && zonalGroups.length > 0 && (
                   <SectionCard title="Zonal Officer Section" icon={Navigation} bannerColor="bg-orange-50/40" iconColor="text-[#FF9933]">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {zonalGroups.map((g, i) => (
@@ -569,7 +668,7 @@ export default function App() {
                 )}
 
                 {/* 6. DSP DETAILS */}
-                {dspDetails.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'DSP Details') && dspDetails.length > 0 && (
                   <SectionCard title="DSP Details" icon={Shield} bannerColor="bg-green-50/40" iconColor="text-[#138808]">
                     {dspDetails.map((c, i) => (
                       <ContactItem key={i} {...c} extra={`Subdivision: ${c.subdivision}`} accent="green" delay={i} />
@@ -578,7 +677,7 @@ export default function App() {
                 )}
 
                 {/* 7. ASSEMBLY INSPECTOR */}
-                {assemblyInspectors.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'Assembly Inspector') && assemblyInspectors.length > 0 && (
                   <SectionCard title="Assembly Inspector" icon={Building2} bannerColor="bg-green-50/20" iconColor="text-green-600">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {assemblyInspectors.map((c, i) => (
@@ -592,7 +691,7 @@ export default function App() {
                 )}
 
                 {/* 8. INSPECTOR DETAILS */}
-                {inspectors.length > 0 && (
+                {(selectedCategory === 'All' || selectedCategory === 'Inspector Details') && inspectors.length > 0 && (
                   <SectionCard title="Inspector Details" icon={Scale} bannerColor="bg-green-50/10" iconColor="text-slate-400">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {inspectors.map((c, i) => (
