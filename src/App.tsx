@@ -69,6 +69,13 @@ interface RawData {
   'Assembly Coordinator (Web Casting) Number'?: string;
 }
 
+interface SupervisorRawData {
+  'Assembly Constituency': string;
+  'Polling Station No': string;
+  'Supervisor Name': string;
+  'Supervisor Number': string;
+}
+
 interface Contact {
   name: string;
   phone: string;
@@ -86,9 +93,17 @@ interface ZonalGroup {
   psRanges: string;
 }
 
+interface SupervisorGroup {
+  name: string;
+  phone: string;
+  psRanges: string;
+  minPS: number;
+}
+
 // --- Constants ---
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/1HLOWIsSJ-ba74uGI9ogd3GQiPl5c7CSN/export?format=csv';
+const SUPERVISOR_CSV_URL = 'https://docs.google.com/spreadsheets/d/13d7oA0ODdeprlxI7i5pTHIzCbd4QQGH8/export?format=csv';
 
 // --- Sub-Components ---
 
@@ -183,6 +198,7 @@ const ContactItem = ({ name, phone, extra, label, accent = "navy", delay = 0 }: 
 
 export default function App() {
   const [data, setData] = useState<RawData[]>([]);
+  const [supervisorData, setSupervisorData] = useState<SupervisorRawData[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,29 +206,51 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [hasSearched, setHasSearched] = useState(false);
   const [filteredResults, setFilteredResults] = useState<RawData[]>([]);
+  const [filteredSupervisors, setFilteredSupervisors] = useState<SupervisorRawData[]>([]);
 
   const fetchData = React.useCallback(async (isManual = false) => {
     if (isManual) setIsRefreshing(true);
     try {
-      const response = await fetch(`${CSV_URL}&cachebust=${Date.now()}`);
-      const csvString = await response.text();
+      const [response1, response2] = await Promise.all([
+        fetch(`${CSV_URL}&cachebust=${Date.now()}`),
+        fetch(`${SUPERVISOR_CSV_URL}&cachebust=${Date.now()}`)
+      ]);
+
+      const [csvString1, csvString2] = await Promise.all([
+        response1.text(),
+        response2.text()
+      ]);
       
-      Papa.parse(csvString, {
+      Papa.parse(csvString1, {
         header: true,
         skipEmptyLines: true,
         transformHeader: (h) => h.trim(),
         transform: (v) => v.trim(),
         complete: (results) => {
           setData(results.data as RawData[]);
+        },
+        error: () => {
+          setError('Failed to process directory data.');
+        }
+      });
+
+      Papa.parse(csvString2, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (h) => h.trim(),
+        transform: (v) => v.trim(),
+        complete: (results) => {
+          setSupervisorData(results.data as SupervisorRawData[]);
           setLoading(false);
           setIsRefreshing(false);
         },
         error: () => {
-          setError('Failed to process directory data.');
+          setError('Failed to process supervisor data.');
           setLoading(false);
           setIsRefreshing(false);
         }
       });
+
     } catch (err) {
       setError('Connection error. Please check your data source.');
       setLoading(false);
@@ -234,7 +272,9 @@ export default function App() {
   const handleSearch = () => {
     if (!selectedConstituency) return;
     const filtered = data.filter(item => item['Assembly Constituency'] === selectedConstituency);
+    const filteredSuper = supervisorData.filter(item => item['Assembly Constituency'] === selectedConstituency);
     setFilteredResults(filtered);
+    setFilteredSupervisors(filteredSuper);
     setHasSearched(true);
   };
 
@@ -243,6 +283,7 @@ export default function App() {
     setSelectedConstituency('');
     setSelectedCategory('All');
     setFilteredResults([]);
+    setFilteredSupervisors([]);
   };
 
   const categories = [
@@ -252,6 +293,7 @@ export default function App() {
     'FST Details',
     'SST Details',
     'Assembly Coordinator (Web Casting)',
+    'Supervisor (Web Casting)',
     'Zonal Officer Section',
     'DSP Details',
     'Assembly Inspector',
@@ -347,6 +389,57 @@ export default function App() {
     });
     return Array.from(unique.values()).sort((a,b) => a.name.localeCompare(b.name));
   }, [filteredResults]);
+
+  const supervisorGroups = useMemo(() => {
+    const groupsMap = new Map<string, SupervisorRawData[]>();
+    filteredSupervisors.forEach(r => {
+      const key = `${r['Supervisor Name']}|${r['Supervisor Number']}`;
+      if (r['Supervisor Name']) {
+        const list = groupsMap.get(key) || [];
+        list.push(r);
+        groupsMap.set(key, list);
+      }
+    });
+
+    const groups: SupervisorGroup[] = [];
+    groupsMap.forEach((rows, key) => {
+      const [name, phone] = key.split('|');
+      const psNumbers = Array.from(new Set(rows.map(r => parseInt(r['Polling Station No'])).filter(n => !isNaN(n))))
+        .sort((a, b) => a - b);
+
+      const formatRanges = (nums: number[]) => {
+        if (nums.length === 0) return "";
+        const ranges: string[] = [];
+        let start = nums[0];
+        let end = nums[0];
+
+        for (let i = 1; i <= nums.length; i++) {
+          if (i < nums.length && nums[i] === end + 1) {
+            end = nums[i];
+          } else {
+            if (start === end) {
+              ranges.push(`${start}`);
+            } else {
+              ranges.push(`${start}-${end}`);
+            }
+            if (i < nums.length) {
+              start = nums[i];
+              end = nums[i];
+            }
+          }
+        }
+        return ranges.join(", ");
+      };
+
+      groups.push({
+        name,
+        phone,
+        psRanges: formatRanges(psNumbers),
+        minPS: Math.min(...psNumbers)
+      });
+    });
+    return groups.sort((a,b) => a.minPS - b.minPS);
+  }, [filteredSupervisors]);
 
   const zonalGroups = useMemo(() => {
     const groupsMap = new Map<string, RawData[]>();
@@ -631,6 +724,38 @@ export default function App() {
                 {(selectedCategory === 'All' || selectedCategory === 'Assembly Coordinator (Web Casting)') && coordinatorDetails.length > 0 && (
                   <SectionCard title="Assembly Coordinator (Web Casting)" icon={Users} bannerColor="bg-blue-50/40" iconColor="text-blue-600">
                     {coordinatorDetails.map((c, i) => <ContactItem key={i} {...c} accent="navy" delay={i} />)}
+                  </SectionCard>
+                )}
+
+                {/* 4.6 SUPERVISOR (WEB CASTING) */}
+                {(selectedCategory === 'All' || selectedCategory === 'Supervisor (Web Casting)') && supervisorGroups.length > 0 && (
+                  <SectionCard title="Supervisor (Web Casting)" icon={User} bannerColor="bg-blue-50/30" iconColor="text-blue-500">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {supervisorGroups.map((g, i) => (
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          whileInView={{ opacity: 1, scale: 1 }}
+                          viewport={{ once: true }}
+                          transition={{ delay: i * 0.1 }}
+                          key={i} 
+                          className="p-6 rounded-[2.5rem] bg-white border border-slate-100 flex flex-col gap-6 shadow-sm hover:shadow-xl hover:shadow-blue-100/30 transition-all duration-500"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex flex-col">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Coverage</span>
+                              <span className="text-xl font-black text-[#000080]">PS {g.psRanges}</span>
+                            </div>
+                            <div className="p-3 bg-blue-50 rounded-2xl">
+                              <User className="w-5 h-5 text-blue-500" />
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-4">
+                            <ContactItem name={g.name} phone={g.phone} label="Supervisor" accent="navy" />
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
                   </SectionCard>
                 )}
 
