@@ -695,7 +695,7 @@ export default function App() {
                 {/* 1. RO DETAILS */}
                 {(selectedCategory === 'All' || selectedCategory === 'RO Details') && roDetails.length > 0 && (
                   <SectionCard title="RO Details" icon={UserCheck} bannerColor="bg-blue-50/30" iconColor="text-[#000080]">
-                    {roDetails.map((c, i) => <ContactItem key={i} {...c} label="Returning Officer" delay={i} />)}
+                    {roDetails.map((c, i) => <ContactItem key={i} {...c} label="RO Officer" delay={i} />)}
                   </SectionCard>
                 )}
 
