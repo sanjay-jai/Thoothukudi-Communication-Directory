@@ -20,7 +20,8 @@ import {
   Flag,
   Map as MapIcon,
   Building2,
-  PhoneCall
+  PhoneCall,
+  Activity
 } from 'lucide-react';
 
 // --- Sub-Components ---
@@ -76,6 +77,14 @@ interface SupervisorRawData {
   'Supervisor Number': string;
 }
 
+interface MedicalRawData {
+  'Assembly Constituency': string;
+  'Mobile Medical Team Name'?: string;
+  'Mobile Medical Team Number'?: string;
+  'Block Medical Officer Name'?: string;
+  'Block Medical Officer Number'?: string;
+}
+
 interface Contact {
   name: string;
   phone: string;
@@ -104,6 +113,7 @@ interface SupervisorGroup {
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/1HLOWIsSJ-ba74uGI9ogd3GQiPl5c7CSN/export?format=csv';
 const SUPERVISOR_CSV_URL = 'https://docs.google.com/spreadsheets/d/13d7oA0ODdeprlxI7i5pTHIzCbd4QQGH8/export?format=csv';
+const MEDICAL_CSV_URL = 'https://docs.google.com/spreadsheets/d/1iLuxp0stvQjs9a3LWOmtkhbTyBD8FU2H/export?format=csv';
 
 // --- Sub-Components ---
 
@@ -194,11 +204,24 @@ const ContactItem = ({ name, phone, extra, label, accent = "navy", delay = 0 }: 
   );
 };
 
+// --- Utilities ---
+
+const extractPhone = (str: string) => {
+  const phoneMatch = str.match(/\d{10,12}/);
+  if (phoneMatch) {
+    const phone = phoneMatch[0];
+    const name = str.replace(phone, '').replace(/[()]/g, '').trim();
+    return { name, phone };
+  }
+  return { name: str, phone: '' };
+};
+
 // --- Main App Component ---
 
 export default function App() {
   const [data, setData] = useState<RawData[]>([]);
   const [supervisorData, setSupervisorData] = useState<SupervisorRawData[]>([]);
+  const [medicalData, setMedicalData] = useState<MedicalRawData[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,51 +230,50 @@ export default function App() {
   const [hasSearched, setHasSearched] = useState(false);
   const [filteredResults, setFilteredResults] = useState<RawData[]>([]);
   const [filteredSupervisors, setFilteredSupervisors] = useState<SupervisorRawData[]>([]);
+  const [filteredMedical, setFilteredMedical] = useState<MedicalRawData[]>([]);
 
   const fetchData = React.useCallback(async (isManual = false) => {
     if (isManual) setIsRefreshing(true);
     try {
-      const [response1, response2] = await Promise.all([
+      const [response1, response2, response3] = await Promise.all([
         fetch(`${CSV_URL}&cachebust=${Date.now()}`),
-        fetch(`${SUPERVISOR_CSV_URL}&cachebust=${Date.now()}`)
+        fetch(`${SUPERVISOR_CSV_URL}&cachebust=${Date.now()}`),
+        fetch(`${MEDICAL_CSV_URL}&cachebust=${Date.now()}`)
       ]);
 
-      const [csvString1, csvString2] = await Promise.all([
+      const [csvString1, csvString2, csvString3] = await Promise.all([
         response1.text(),
-        response2.text()
+        response2.text(),
+        response3.text()
       ]);
-      
-      Papa.parse(csvString1, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (h) => h.trim(),
-        transform: (v) => v.trim(),
-        complete: (results) => {
-          setData(results.data as RawData[]);
-        },
-        error: () => {
-          setError('Failed to process directory data.');
-        }
-      });
 
-      Papa.parse(csvString2, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (h) => h.trim(),
-        transform: (v) => v.trim(),
-        complete: (results) => {
-          setSupervisorData(results.data as SupervisorRawData[]);
-          setLoading(false);
-          setIsRefreshing(false);
-        },
-        error: () => {
-          setError('Failed to process supervisor data.');
-          setLoading(false);
-          setIsRefreshing(false);
-        }
-      });
+      const parseCSV = (csvString: string) => {
+        return new Promise<any[]>((resolve, reject) => {
+          Papa.parse(csvString, {
+            header: true,
+            skipEmptyLines: true,
+            transformHeader: (h) => h.trim(),
+            transform: (v) => v.trim(),
+            complete: (results) => resolve(results.data),
+            error: (err) => reject(err)
+          });
+        });
+      };
+
+      const [data1, data2, data3] = await Promise.all([
+        parseCSV(csvString1),
+        parseCSV(csvString2),
+        parseCSV(csvString3)
+      ]);
+
+      setData(data1);
+      setSupervisorData(data2);
+      setMedicalData(data3);
+      setLoading(false);
+      setIsRefreshing(false);
 
     } catch (err) {
+      console.error(err);
       setError('Connection error. Please check your data source.');
       setLoading(false);
       setIsRefreshing(false);
@@ -264,17 +286,54 @@ export default function App() {
   }, [fetchData]);
 
   const constituencies = useMemo(() => {
-    return Array.from(new Set(data.map(item => item['Assembly Constituency'])))
+    const all = [
+      ...data.map(item => item['Assembly Constituency']),
+      ...supervisorData.map(item => (item as any)['Assembly Constituency']),
+      ...medicalData.map(item => (item as any)['Assembly Constituency'])
+    ];
+    
+    // Robust constituency extraction
+    const robustAll = [
+      ...data.map(item => {
+        const keys = Object.keys(item);
+        const k = keys.find(key => key.toLowerCase().includes('constituency'));
+        return k ? String((item as any)[k]).trim() : '';
+      }),
+      ...supervisorData.map(item => {
+        const keys = Object.keys(item);
+        const k = keys.find(key => key.toLowerCase().includes('constituency'));
+        return k ? String((item as any)[k]).trim() : '';
+      }),
+      ...medicalData.map(item => {
+        const keys = Object.keys(item);
+        const k = keys.find(key => key.toLowerCase().includes('constituency'));
+        return k ? String((item as any)[k]).trim() : '';
+      })
+    ];
+
+    return Array.from(new Set(robustAll))
       .filter(Boolean)
       .sort();
-  }, [data]);
+  }, [data, supervisorData, medicalData]);
 
   const handleSearch = () => {
     if (!selectedConstituency) return;
-    const filtered = data.filter(item => item['Assembly Constituency'] === selectedConstituency);
-    const filteredSuper = supervisorData.filter(item => item['Assembly Constituency'] === selectedConstituency);
+    
+    // Robust filtering for all data sources
+    const filterByConstituency = (item: any) => {
+      const keys = Object.keys(item);
+      const constituencyKey = keys.find(k => k.toLowerCase().includes('constituency'));
+      if (!constituencyKey) return false;
+      return String(item[constituencyKey]).trim() === selectedConstituency.trim();
+    };
+
+    const filtered = data.filter(filterByConstituency);
+    const filteredSuper = supervisorData.filter(filterByConstituency);
+    const filteredMed = medicalData.filter(filterByConstituency);
+    
     setFilteredResults(filtered);
     setFilteredSupervisors(filteredSuper);
+    setFilteredMedical(filteredMed);
     setHasSearched(true);
   };
 
@@ -284,6 +343,7 @@ export default function App() {
     setSelectedCategory('All');
     setFilteredResults([]);
     setFilteredSupervisors([]);
+    setFilteredMedical([]);
   };
 
   const categories = [
@@ -294,6 +354,8 @@ export default function App() {
     'SST Details',
     'Assembly Coordinator (Web Casting)',
     'Supervisor (Web Casting)',
+    'Mobile Medical Team',
+    'Block Medical Officers',
     'Zonal Officer Section',
     'DSP Details',
     'Assembly Inspector',
@@ -376,8 +438,10 @@ export default function App() {
       const rawPhone = (r as any)[numKey];
       
       if (rawName) {
-        const name = String(rawName).trim();
-        const phone = rawPhone ? String(rawPhone).trim() : '';
+        const fullString = String(rawName).trim();
+        const extracted = extractPhone(fullString);
+        const name = extracted.name;
+        const phone = extracted.phone || (rawPhone ? String(rawPhone).trim() : '');
         
         if (name && name !== 'N/A' && name !== '-' && name !== '.') {
           unique.set(name, { 
@@ -393,8 +457,19 @@ export default function App() {
   const supervisorGroups = useMemo(() => {
     const groupsMap = new Map<string, SupervisorRawData[]>();
     filteredSupervisors.forEach(r => {
-      const key = `${r['Supervisor Name']}|${r['Supervisor Number']}`;
-      if (r['Supervisor Name']) {
+      const keys = Object.keys(r);
+      const nameKey = keys.find(k => k.toLowerCase().includes('supervisor') && k.toLowerCase().includes('name'));
+      const numKey = keys.find(k => k.toLowerCase().includes('supervisor') && (k.toLowerCase().includes('number') || k.toLowerCase().includes('phone')));
+      
+      const sNameRaw = nameKey ? String((r as any)[nameKey]).trim() : '';
+      const sPhoneRaw = numKey ? String((r as any)[numKey]).trim() : '';
+      
+      const extracted = extractPhone(sNameRaw);
+      const sName = extracted.name;
+      const sPhone = extracted.phone || sPhoneRaw;
+      
+      const key = `${sName}|${sPhone}`;
+      if (sName && sName !== 'N/A' && sName !== '-') {
         const list = groupsMap.get(key) || [];
         list.push(r);
         groupsMap.set(key, list);
@@ -404,7 +479,12 @@ export default function App() {
     const groups: SupervisorGroup[] = [];
     groupsMap.forEach((rows, key) => {
       const [name, phone] = key.split('|');
-      const psNumbers = Array.from(new Set(rows.map(r => parseInt(r['Polling Station No'])).filter(n => !isNaN(n))))
+      
+      const psKey = Object.keys(rows[0]).find(k => k.toLowerCase().includes('polling station') || k.toLowerCase().includes('ps no'));
+      const psNumbers = Array.from(new Set(rows.map(r => {
+        const val = psKey ? (r as any)[psKey] : (r as any)['Polling Station No'];
+        return parseInt(String(val));
+      }).filter(n => !isNaN(n))))
         .sort((a, b) => a - b);
 
       const formatRanges = (nums: number[]) => {
@@ -440,6 +520,64 @@ export default function App() {
     });
     return groups.sort((a,b) => a.minPS - b.minPS);
   }, [filteredSupervisors]);
+
+  const mobileMedicalDetails = useMemo(() => {
+    const unique = new Map<string, Contact>();
+    filteredMedical.forEach(r => {
+      const keys = Object.keys(r);
+      // Look for Mobile Medical Team Name (usually Col B)
+      let nameKey = keys.find(k => k.toLowerCase().includes('mobile medical') && k.toLowerCase().includes('name'));
+      let numKey = keys.find(k => k.toLowerCase().includes('mobile medical') && (k.toLowerCase().includes('number') || k.toLowerCase().includes('phone')));
+      
+      // Fallback: If not found by keywords, assume Column B (index 1) for name and find a number column
+      if (!nameKey && keys.length > 1) nameKey = keys[1];
+      if (!numKey && keys.length > 2) {
+        // Try to find any column after the name that might be a number
+        numKey = keys.find((k, idx) => idx > 1 && (k.toLowerCase().includes('number') || k.toLowerCase().includes('phone')));
+      }
+
+      let name = nameKey ? String((r as any)[nameKey]).trim() : '';
+      let phone = numKey ? String((r as any)[numKey]).trim() : '';
+
+      const extracted = extractPhone(name);
+      name = extracted.name;
+      if (!phone) phone = extracted.phone;
+
+      if (name && name !== 'N/A' && name !== '-' && name !== '.') {
+        unique.set(name, { name, phone });
+      }
+    });
+    return Array.from(unique.values()).sort((a,b) => a.name.localeCompare(b.name));
+  }, [filteredMedical]);
+
+  const blockMedicalDetails = useMemo(() => {
+    const unique = new Map<string, Contact>();
+    filteredMedical.forEach(r => {
+      const keys = Object.keys(r);
+      // Look for Block Medical Officer Name (usually Col C)
+      let nameKey = keys.find(k => k.toLowerCase().includes('block medical') && k.toLowerCase().includes('name'));
+      let numKey = keys.find(k => k.toLowerCase().includes('block medical') && (k.toLowerCase().includes('number') || k.toLowerCase().includes('phone')));
+      
+      // Fallback: If not found by keywords, assume Column C (index 2) for name
+      if (!nameKey && keys.length > 2) nameKey = keys[2];
+      if (!numKey && keys.length > 3) {
+        // Try to find any column after the name that might be a number
+        numKey = keys.find((k, idx) => idx > 2 && (k.toLowerCase().includes('number') || k.toLowerCase().includes('phone')));
+      }
+
+      let name = nameKey ? String((r as any)[nameKey]).trim() : '';
+      let phone = numKey ? String((r as any)[numKey]).trim() : '';
+
+      const extracted = extractPhone(name);
+      name = extracted.name;
+      if (!phone) phone = extracted.phone;
+
+      if (name && name !== 'N/A' && name !== '-' && name !== '.') {
+        unique.set(name, { name, phone });
+      }
+    });
+    return Array.from(unique.values()).sort((a,b) => a.name.localeCompare(b.name));
+  }, [filteredMedical]);
 
   const zonalGroups = useMemo(() => {
     const groupsMap = new Map<string, RawData[]>();
@@ -756,6 +894,20 @@ export default function App() {
                         </motion.div>
                       ))}
                     </div>
+                  </SectionCard>
+                )}
+
+                {/* 4.7 MOBILE MEDICAL TEAM */}
+                {(selectedCategory === 'All' || selectedCategory === 'Mobile Medical Team') && mobileMedicalDetails.length > 0 && (
+                  <SectionCard title="Mobile Medical Team" icon={Activity} layoutClass="sm:grid-cols-2 lg:grid-cols-3" bannerColor="bg-red-50/20" iconColor="text-red-500">
+                    {mobileMedicalDetails.map((c, i) => <ContactItem key={i} {...c} label="Doctor" accent="navy" delay={i} />)}
+                  </SectionCard>
+                )}
+
+                {/* 4.8 BLOCK MEDICAL OFFICERS */}
+                {(selectedCategory === 'All' || selectedCategory === 'Block Medical Officers') && blockMedicalDetails.length > 0 && (
+                  <SectionCard title="Block Medical Officers" icon={Activity} layoutClass="sm:grid-cols-2 lg:grid-cols-3" bannerColor="bg-green-50/20" iconColor="text-green-600">
+                    {blockMedicalDetails.map((c, i) => <ContactItem key={i} {...c} label="Medical Officer" accent="green" delay={i} />)}
                   </SectionCard>
                 )}
 
